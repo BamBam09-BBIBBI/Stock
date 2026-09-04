@@ -21,7 +21,13 @@ file_sales = st.sidebar.file_uploader("2. อัปโหลดไฟล์ย�
 # Settings
 st.sidebar.header("⚙️ ตั้งค่าเกณฑ์สั่งซื้อ")
 lead_time_days = st.sidebar.slider("ระยะเวลารอของ (Lead Time: วัน)", min_value=1, max_value=14, value=3)
-default_safety_stock = st.sidebar.slider("สต็อกสำรองกันขาด (Safety Stock: แกลลอน/ขวด)", min_value=0, max_value=10, value=2)
+
+st.sidebar.subheader("🛡️ สต็อกสำรองกันขาด (Safety Stock)")
+st.sidebar.caption("กำหนดจำนวนสต็อกขั้นต่ำแยกตามขนาดบรรจุภัณฑ์")
+safety_1L = st.sidebar.slider("ขนาด ≤ 1 ลิตร (ขวดเล็ก / เติม / มอเตอร์ไซค์)", min_value=0, max_value=24, value=6, step=1)
+safety_4L = st.sidebar.slider("ขนาด 4 ลิตร (แกลลอนเบนซิน)", min_value=0, max_value=12, value=3, step=1)
+safety_6L = st.sidebar.slider("ขนาด 6 ลิตร (แกลลอนดีเซล)", min_value=0, max_value=12, value=4, step=1)
+safety_other = st.sidebar.slider("ขนาดอื่นๆ / ถังใหญ่ (18L, 20L)", min_value=0, max_value=5, value=1, step=1)
 
 if file_stock is not None and file_sales is not None:
     try:
@@ -40,35 +46,56 @@ if file_stock is not None and file_sales is not None:
         sales_df['Product_Name'] = sales_df['Product_Name'].astype(str).str.strip()
         sales_df['Total_Sold_Liters'] = pd.to_numeric(sales_df['Total_Sold_Liters'], errors='coerce').fillna(0)
         
+        # Group sales in case product appears more than once
+        sales_grouped = sales_df.groupby('Product_Name', as_index=False)['Total_Sold_Liters'].sum()
+        
         # Merge by Product Name
         df_merged = pd.merge(
             df_stock,
-            sales_df[['Product_Name', 'Total_Sold_Liters']],
+            sales_grouped,
             left_on=df_stock['ชื่อสินค้า'].astype(str).str.strip(),
-            right_on=sales_df['Product_Name'].astype(str).str.strip(),
+            right_on=sales_grouped['Product_Name'].astype(str).str.strip(),
             how='left'
         )
         
         # Data preparation
         df_merged['Total_Sold_Liters'] = df_merged['Total_Sold_Liters'].fillna(0)
-        df_merged['ขนาด(ลิตร)'] = pd.to_numeric(df_merged['ขนาด(ลิตร)'], errors='coerce').fillna(1)
+        df_merged['ขนาด(ลิตร)'] = pd.to_numeric(df_merged['ขนาด(ลิตร)'], errors='coerce').fillna(1.0)
         df_merged['จำนวนคงเหลือ/หน่วย'] = pd.to_numeric(df_merged['จำนวนคงเหลือ/หน่วย'], errors='coerce').fillna(0)
         
-        # Convert liters to units (e.g. 72 liters / 6L = 12 cans)
+        # Convert liters sold to units sold (Bottles/Gallons)
         df_merged['Units_Sold'] = np.where(
             df_merged['ขนาด(ลิตร)'] > 0,
             np.round(df_merged['Total_Sold_Liters'] / df_merged['ขนาด(ลิตร)'], 1),
             df_merged['Total_Sold_Liters']
         )
         
-        # Calculations (ROP & Suggested Order)
+        # Assign Safety Stock based on container size
+        conditions_size = [
+            (df_merged['ขนาด(ลิตร)'] <= 1.0),
+            (df_merged['ขนาด(ลิตร)'] > 1.0) & (df_merged['ขนาด(ลิตร)'] <= 4.0),
+            (df_merged['ขนาด(ลิตร)'] > 4.0) & (df_merged['ขนาด(ลิตร)'] <= 6.0),
+            (df_merged['ขนาด(ลิตร)'] > 6.0)
+        ]
+        choices_safety = [safety_1L, safety_4L, safety_6L, safety_other]
+        df_merged['Safety_Stock'] = np.select(conditions_size, choices_safety, default=safety_other)
+        
+        # Calculations: ROP & Suggested Order
         df_merged['Daily_Units'] = df_merged['Units_Sold'] / 31.0
-        df_merged['ROP'] = (df_merged['Daily_Units'] * lead_time_days) + default_safety_stock
+        df_merged['ROP'] = np.ceil((df_merged['Daily_Units'] * lead_time_days) + df_merged['Safety_Stock'])
+        
+        # Order Up To Level: Target 15 days supply + Safety Stock
+        target_coverage_days = 15.0
+        df_merged['Max_Stock'] = np.ceil((df_merged['Daily_Units'] * target_coverage_days) + df_merged['Safety_Stock'])
+        
         df_merged['Suggested_Order'] = np.where(
-            df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP'],
-            np.maximum(0, np.ceil((df_merged['ROP'] * 2) - df_merged['จำนวนคงเหลือ/หน่วย'])),
+            (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP']) & (df_merged['Units_Sold'] > 0),
+            np.maximum(0, np.ceil(df_merged['Max_Stock'] - df_merged['จำนวนคงเหลือ/หน่วย'])),
             0
         ).astype(int)
+        
+        # If out of stock but sold before, ensure ordering at least safety stock
+        df_merged.loc[(df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & (df_merged['Units_Sold'] > 0) & (df_merged['Suggested_Order'] < df_merged['Safety_Stock']), 'Suggested_Order'] = df_merged['Safety_Stock']
         
         # Status assignment
         conditions = [
@@ -106,18 +133,21 @@ if file_stock is not None and file_sales is not None:
         
         with col_chart1:
             st.markdown("### 🏆 10 อันดับสินค้าขายดีที่สุด (ยอดขาย: ลิตร)")
-            top10 = df_merged.sort_values(by='Total_Sold_Liters', ascending=False).head(10)
-            fig_bar = px.bar(
-                top10,
-                x='Total_Sold_Liters',
-                y='ชื่อสินค้า',
-                orientation='h',
-                text='Total_Sold_Liters',
-                color='Total_Sold_Liters',
-                color_continuous_scale='Reds'
-            )
-            fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, height=450)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            top10 = df_merged[df_merged['Total_Sold_Liters'] > 0].sort_values(by='Total_Sold_Liters', ascending=False).head(10)
+            if len(top10) > 0:
+                fig_bar = px.bar(
+                    top10,
+                    x='Total_Sold_Liters',
+                    y='ชื่อสินค้า',
+                    orientation='h',
+                    text='Total_Sold_Liters',
+                    color='Total_Sold_Liters',
+                    color_continuous_scale='Reds'
+                )
+                fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, height=450)
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.write("ไม่พบข้อมูลยอดขาย")
             
         with col_chart2:
             st.markdown("### 🎯 สัดส่วนสถานะสต็อกสินค้า")
@@ -145,8 +175,8 @@ if file_stock is not None and file_sales is not None:
         order_list = df_merged[df_merged['Status'].isin(['🔴 สินค้าหมด (ขาดแคลน)', '🚨 ต้องสั่งซื้อเพิ่ม'])].copy()
         
         if len(order_list) > 0:
-            order_table = order_list[['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'จำนวนคงเหลือ/หน่วย', 'Units_Sold', 'ROP', 'Suggested_Order', 'Status']].sort_values(by='Suggested_Order', ascending=False)
-            order_table.columns = ['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'สต็อกคงเหลือ', 'ยอดขายเดือนนี้ (ชิ้น)', 'จุดสั่งซื้อ (ROP)', 'จำนวนที่แนะนำให้สั่ง (ชิ้น)', 'สถานะ']
+            order_table = order_list[['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'จำนวนคงเหลือ/หน่วย', 'Units_Sold', 'Safety_Stock', 'ROP', 'Suggested_Order', 'Status']].sort_values(by='Suggested_Order', ascending=False)
+            order_table.columns = ['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'สต็อกคงเหลือ', 'ยอดขายเดือนนี้ (ชิ้น)', 'สต็อกสำรอง (Safety)', 'จุดสั่งซื้อ (ROP)', 'จำนวนที่แนะนำให้สั่ง (ชิ้น)', 'สถานะ']
             st.dataframe(order_table, use_container_width=True)
             
             # Excel export
