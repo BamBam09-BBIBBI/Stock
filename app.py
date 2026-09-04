@@ -73,8 +73,15 @@ st.markdown("""
 st.title("🛢️ ระบบวิเคราะห์ยอดขาย & แนะนำการสั่งซื้อประจำเดือน")
 st.markdown("อัปโหลดไฟล์รายงาน 2 ไฟล์จากระบบ เพื่อดูแดชบอร์ดสรุปสินค้าขายดีและรายการแนะนำสั่งซื้ออัตโนมัติ (ปัดเศษเต็มลัง)")
 
-# Sidebar Shell Branding
-st.sidebar.image("https://upload.wikimedia.org/wikipedia/en/thumb/e/e8/Shell_logo.svg/300px-Shell_logo.svg.png", width=95)
+# Sidebar Shell Branding (รูปโลโก้ที่อัปโหลดเอง)
+import os
+logo_filename = "logo.png"  # <-- เปลี่ยนชื่อไฟล์ภาพตรงนี้ได้ตามต้องการ
+
+if os.path.exists(logo_filename):
+    col_l, col_m, col_r = st.sidebar.columns([1, 2, 1])
+    with col_m:
+        st.image(logo_filename, width=90)
+    st.sidebar.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 st.sidebar.header("📁 อัปโหลดไฟล์ประจำเดือน")
 file_stock = st.sidebar.file_uploader("1. อัปโหลดไฟล์สต็อก (จัดการคลังสินค้า.xls)", type=['xls', 'xlsx'])
 file_sales = st.sidebar.file_uploader("2. อัปโหลดไฟล์ยอดขาย (รายงานขนาดการขาย.xls)", type=['xls', 'xlsx'])
