@@ -206,17 +206,24 @@ if file_stock is not None and file_sales is not None:
             order_table = order_list[['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'จำนวนคงเหลือ/หน่วย', 'Units_Sold', 'Safety_Stock', 'ROP', 'Suggested_Order', 'Status']]
             order_table.columns = ['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'สต็อกคงเหลือ', 'ยอดขายเดือนนี้ (ชิ้น)', 'สต็อกสำรอง (Safety)', 'จุดสั่งซื้อ (ROP)', 'จำนวนที่แนะนำให้สั่ง (ชิ้น)', 'สถานะ']
             
-            st.dataframe(
-                order_table.style.applymap(
-                    lambda v: 'background-color: #ffcccc; font-weight: bold; color: #990000;' if '🔥' in str(v) else (
-                        'background-color: #ffe6e6; color: #cc0000;' if '🔴' in str(v) else (
-                            'background-color: #fff3cd; color: #856404;' if '⚡' in str(v) or '🚨' in str(v) else ''
-                        )
-                    ),
-                    subset=['สถานะ']
-                ),
-                use_container_width=True
-            )
+            # Compatible styling for all pandas versions (map vs applymap)
+            def color_status(val):
+                s_val = str(val)
+                if '🔥' in s_val:
+                    return 'background-color: #ffcccc; font-weight: bold; color: #990000;'
+                elif '🔴' in s_val:
+                    return 'background-color: #ffe6e6; color: #cc0000;'
+                elif '⚡' in s_val or '🚨' in s_val:
+                    return 'background-color: #fff3cd; color: #856404;'
+                return ''
+
+            styler = order_table.style
+            if hasattr(styler, 'map'):
+                styled_df = styler.map(color_status, subset=['สถานะ'])
+            else:
+                styled_df = styler.applymap(color_status, subset=['สถานะ'])
+                
+            st.dataframe(styled_df, use_container_width=True)
             
             # Excel export
             output = io.BytesIO()
