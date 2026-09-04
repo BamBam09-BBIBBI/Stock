@@ -10,7 +10,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.markdown('
+# Shell Theme Accent
+st.markdown("""
 <style>
     /* Shell Theme Accent */
     :root {
@@ -67,7 +68,7 @@ st.markdown('
         color: #FBCE07 !important;
     }
 </style>
-', unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 st.title("🛢️ ระบบวิเคราะห์ยอดขาย & แนะนำการสั่งซื้อประจำเดือน")
 st.markdown("อัปโหลดไฟล์รายงาน 2 ไฟล์จากระบบ เพื่อดูแดชบอร์ดสรุปสินค้าขายดีและรายการแนะนำสั่งซื้ออัตโนมัติ (ปัดเศษเต็มลัง)")
@@ -92,6 +93,7 @@ safety_oil_4L = st.sidebar.slider("🛢️ น้ำมันเครื่อ�
 safety_oil_6L = st.sidebar.slider("🚚 น้ำมันเครื่อง 6 ลิตร (แกลลอนดีเซล)", min_value=0, max_value=16, value=4, step=1)
 safety_other = st.sidebar.slider("📦 ขนาดอื่นๆ / ถังใหญ่ (18L, 20L)", min_value=0, max_value=5, value=1, step=1)
 
+# Fixed Pack Sizes
 pack_coolant_1L = 10  # หล่อเย็น 1 ลิตร ลังละ 10 ขวด
 pack_coolant_4L = 4   # น้ำยาหล่อเย็น 4 ลิตร ลังละ 4 แกลลอน (มาตรฐาน)
 pack_oil_1L = 12      # น้ำมันเครื่อง 1 ลิตร ลังละ 12 ขวด
@@ -178,7 +180,6 @@ if file_stock is not None and file_sales is not None:
         df_merged['Daily_Units'] = df_merged['Units_Sold'] / 31.0
         
         # ROP calculation
-        # Filters and Coolants act on Essential Min/Max principle: ROP is at least Safety Stock
         is_essential = is_filter | is_coolant
         df_merged['ROP'] = np.where(
             is_essential,
@@ -194,9 +195,7 @@ if file_stock is not None and file_sales is not None:
             np.ceil((df_merged['Daily_Units'] * target_coverage_days) + df_merged['Safety_Stock'])
         )
         
-        # Order trigger condition:
-        # 1. Essential items (Filters / Coolants): trigger if Stock <= Safety_Stock (even if sold 0 this month!)
-        # 2. Regular Oils: trigger if Stock <= ROP and Units_Sold > 0 (or Stock <= 0 and Units_Sold > 0)
+        # Order trigger condition
         cond_trigger = (
             (is_essential & (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['Safety_Stock'])) |
             ((~is_essential) & (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP']) & (df_merged['Units_Sold'] > 0)) |
@@ -208,7 +207,6 @@ if file_stock is not None and file_sales is not None:
             np.maximum(0, np.ceil(df_merged['Max_Stock'] - df_merged['จำนวนคงเหลือ/หน่วย'])),
             0
         )
-        # Ensure at least safety stock if stock is 0
         raw_order = np.where(
             (df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & cond_trigger & (raw_order < df_merged['Safety_Stock']),
             df_merged['Safety_Stock'],
@@ -216,11 +214,11 @@ if file_stock is not None and file_sales is not None:
         )
         df_merged['Raw_Order'] = raw_order.astype(int)
         
-        # Pack Size Rounding (ปัดเศษเต็มลัง)
+        # Pack Size Rounding
         df_merged['Suggested_Packs'] = np.ceil(df_merged['Raw_Order'] / df_merged['Pack_Size']).astype(int)
         df_merged['Suggested_Order'] = (df_merged['Suggested_Packs'] * df_merged['Pack_Size']).astype(int)
         
-        # Top Seller Identification (Top 20% by sales of active oils)
+        # Top Seller Identification
         active_sales = df_merged[(df_merged['Units_Sold'] > 0) & (~is_filter)]['Units_Sold']
         sales_threshold = active_sales.quantile(0.80) if len(active_sales) > 0 else 5.0
         df_merged['Is_Top_Seller'] = (df_merged['Units_Sold'] >= sales_threshold) & (~is_filter)
