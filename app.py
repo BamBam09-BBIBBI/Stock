@@ -80,8 +80,8 @@ logo_filename = "Shell-Logo.png"  # <-- เปลี่ยนชื่อไฟ�
 if os.path.exists(logo_filename):
     col_l, col_m, col_r = st.sidebar.columns([1, 2, 1])
     with col_m:
-        st.image(logo_filename, width=360)
-    st.sidebar.markdown("<div style='margin-bottom: 60px;'></div>", unsafe_allow_html=True)
+        st.image(logo_filename, width=180)
+    st.sidebar.markdown("<div style='margin-bottom: 30px;'></div>", unsafe_allow_html=True)
 st.sidebar.header("📁 อัปโหลดไฟล์ประจำเดือน")
 file_stock = st.sidebar.file_uploader("1. อัปโหลดไฟล์สต็อก (จัดการคลังสินค้า.xls)", type=['xls', 'xlsx'])
 file_sales = st.sidebar.file_uploader("2. อัปโหลดไฟล์ยอดขาย (รายงานขนาดการขาย.xls)", type=['xls', 'xlsx'])
