@@ -75,7 +75,7 @@ st.markdown("อัปโหลดไฟล์รายงาน 2 ไฟล์�
 
 # Sidebar Shell Branding (รูปโลโก้ที่อัปโหลดเอง)
 import os
-logo_filename = "logo.png"  # <-- เปลี่ยนชื่อไฟล์ภาพตรงนี้ได้ตามต้องการ
+logo_filename = "Shell-Logo.png"  # <-- เปลี่ยนชื่อไฟล์ภาพตรงนี้ได้ตามต้องการ
 
 if os.path.exists(logo_filename):
     col_l, col_m, col_r = st.sidebar.columns([1, 2, 1])
