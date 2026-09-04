@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("🛢️ ระบบวิเคราะห์ยอดขาย & แนะนำการสั่งซื้อประจำเดือน")
-st.markdown("อัปโหลดไฟล์รายงาน 2 ไฟล์จากระบบ เพื่อดูแดชบอร์ดสรุปสินค้าขายดีและรายการแนะนำสั่งซื้ออัตโนมัติ")
+st.markdown("อัปโหลดไฟล์รายงาน 2 ไฟล์จากระบบ เพื่อดูแดชบอร์ดสรุปสินค้าขายดีและรายการแนะนำสั่งซื้ออัตโนมัติ (ปัดเศษเต็มลัง)")
 
 # Sidebar for file upload
 st.sidebar.header("📁 อัปโหลดไฟล์ประจำเดือน")
@@ -24,18 +24,18 @@ lead_time_days = st.sidebar.slider("ระยะเวลารอของ (Lea
 
 st.sidebar.subheader("🛡️ สต็อกสำรองกันขาด (Safety Stock)")
 st.sidebar.caption("กำหนดจำนวนสต็อกขั้นต่ำแยกตามกลุ่มสินค้าและขนาด")
-safety_filter = st.sidebar.slider("🔧 ไส้กรองน้ำมันเครื่อง / ไส้กรองทั่วไป (ลูก)", min_value=0, max_value=20, value=5, step=1)
-safety_1L = st.sidebar.slider("🧴 ขนาด ≤ 1 ลิตร (ขวดเล็ก / เติม / มอเตอร์ไซค์)", min_value=0, max_value=24, value=6, step=1)
-safety_4L = st.sidebar.slider("🛢️ ขนาด 4 ลิตร (แกลลอนเบนซิน)", min_value=0, max_value=12, value=3, step=1)
-safety_6L = st.sidebar.slider("🚚 ขนาด 6 ลิตร (แกลลอนดีเซล)", min_value=0, max_value=12, value=4, step=1)
+safety_filter = st.sidebar.slider("🔧 ไส้กรองน้ำมันเครื่อง / ไส้กรองทั่วไป (ลูก)", min_value=0, max_value=20, value=3, step=1)
+safety_1L = st.sidebar.slider("🧴 ขนาด ≤ 1 ลิตร (ขวดเล็ก / หล่อเย็น 1L)", min_value=0, max_value=36, value=12, step=1)
+safety_4L = st.sidebar.slider("🛢️ ขนาด 4 ลิตร (แกลลอนเบนซิน / หล่อเย็น 4L)", min_value=0, max_value=16, value=4, step=1)
+safety_6L = st.sidebar.slider("🚚 ขนาด 6 ลิตร (แกลลอนดีเซล)", min_value=0, max_value=16, value=4, step=1)
 safety_other = st.sidebar.slider("📦 ขนาดอื่นๆ / ถังใหญ่ (18L, 20L)", min_value=0, max_value=5, value=1, step=1)
 
 if file_stock is not None and file_sales is not None:
     try:
-        # Load Stock
+        # 1. Load Stock
         df_stock = pd.read_excel(file_stock)
         
-        # Load Sales (skip 2 header rows of Shell report)
+        # 2. Load Sales (skip 2 header rows of Shell report)
         df_sales_raw = pd.read_excel(file_sales, skiprows=2)
         col_prod = df_sales_raw.columns[0]
         col_size = df_sales_raw.columns[1]
@@ -45,12 +45,18 @@ if file_stock is not None and file_sales is not None:
         sales_df.columns = ['Product_Name', 'Size', 'Total_Sold_Liters']
         sales_df = sales_df.dropna(subset=['Product_Name'])
         sales_df['Product_Name'] = sales_df['Product_Name'].astype(str).str.strip()
+        
+        # Filter out summary/header rows from sales report
+        ignore_keywords = ['หมวดผลิตภัณฑ์หลัก', 'รถยนต์ดีเซล', 'รถยนต์เบนซิน', 'รถยนต์ อีโค คาร์', 
+                           'รถยนต์ NGV / CNG', 'สรุปจำนวนลิตร', 'รวม 1-15', 'รวม 16-31', 'รวมทั้งสิ้น', 'รายการผลิตภัณฑ์']
+        pattern_ignore = '|'.join(ignore_keywords)
+        sales_df = sales_df[~sales_df['Product_Name'].str.contains(pattern_ignore, na=False)]
         sales_df['Total_Sold_Liters'] = pd.to_numeric(sales_df['Total_Sold_Liters'], errors='coerce').fillna(0)
         
-        # Group sales in case product appears more than once
+        # Group sales in case a product appears multiple times
         sales_grouped = sales_df.groupby('Product_Name', as_index=False)['Total_Sold_Liters'].sum()
         
-        # Merge by Product Name
+        # 3. Merge by Product Name
         df_merged = pd.merge(
             df_stock,
             sales_grouped,
@@ -59,15 +65,19 @@ if file_stock is not None and file_sales is not None:
             how='left'
         )
         
-        # Data preparation
+        # Clean columns
         df_merged['Total_Sold_Liters'] = df_merged['Total_Sold_Liters'].fillna(0)
         df_merged['ขนาด(ลิตร)'] = pd.to_numeric(df_merged['ขนาด(ลิตร)'], errors='coerce').fillna(1.0)
         df_merged['จำนวนคงเหลือ/หน่วย'] = pd.to_numeric(df_merged['จำนวนคงเหลือ/หน่วย'], errors='coerce').fillna(0)
         
-        # Flag oil filters
-        is_filter = df_merged['ชื่อสินค้า'].str.contains('ไส้กรอง|กรอง', case=False, na=False) | df_merged['หมวดบริการ'].str.contains('กรอง', case=False, na=False)
+        # Identify filters & coolants
+        is_filter = df_merged['ชื่อสินค้า'].str.contains('ไส้กรอง|กรอง|PFO', case=False, na=False) | df_merged['หมวดบริการ'].str.contains('กรอง', case=False, na=False)
+        is_coolant = df_merged['ชื่อสินค้า'].str.contains('หล่อเย็น|คูลแลนท์|Coolant|ลองไลฟ์', case=False, na=False) | df_merged['หมวดบริการ'].str.contains('หม้อน้ำ|หล่อเย็น', case=False, na=False)
         
-        # Convert liters sold to units sold (Bottles/Gallons/Pieces)
+        df_merged['Is_Filter'] = is_filter
+        df_merged['Is_Coolant'] = is_coolant
+        
+        # Calculate Units Sold
         df_merged['Units_Sold'] = np.where(
             is_filter,
             df_merged['Total_Sold_Liters'],
@@ -78,73 +88,120 @@ if file_stock is not None and file_sales is not None:
             )
         )
         
-        # Assign Safety Stock: Priority 1 = Oil Filter, Priority 2 = Container size
-        conditions_safety = [
+        # Assign Safety Stock
+        cond_safety = [
             is_filter,
             (~is_filter) & (df_merged['ขนาด(ลิตร)'] <= 1.0),
             (~is_filter) & (df_merged['ขนาด(ลิตร)'] > 1.0) & (df_merged['ขนาด(ลิตร)'] <= 4.0),
             (~is_filter) & (df_merged['ขนาด(ลิตร)'] > 4.0) & (df_merged['ขนาด(ลิตร)'] <= 6.0),
             (~is_filter) & (df_merged['ขนาด(ลิตร)'] > 6.0)
         ]
-        choices_safety = [safety_filter, safety_1L, safety_4L, safety_6L, safety_other]
-        df_merged['Safety_Stock'] = np.select(conditions_safety, choices_safety, default=safety_other)
+        choice_safety = [safety_filter, safety_1L, safety_4L, safety_6L, safety_other]
+        df_merged['Safety_Stock'] = np.select(cond_safety, choice_safety, default=safety_other)
         
-        # Calculations: ROP & Suggested Order
+        # Assign Pack Size:
+        # 1L Coolant: 10 bottles/box
+        # 1L Regular Oil: 12 bottles/box
+        # 4L: 4 cans/box
+        # 6L: 2 cans/box
+        # Filter & Drums: 1 unit
+        cond_pack = [
+            is_filter,
+            (~is_filter) & (df_merged['ขนาด(ลิตร)'] <= 1.0) & is_coolant,
+            (~is_filter) & (df_merged['ขนาด(ลิตร)'] <= 1.0) & (~is_coolant),
+            (~is_filter) & (df_merged['ขนาด(ลิตร)'] > 1.0) & (df_merged['ขนาด(ลิตร)'] <= 4.0),
+            (~is_filter) & (df_merged['ขนาด(ลิตร)'] > 4.0) & (df_merged['ขนาด(ลิตร)'] <= 6.0),
+            (~is_filter) & (df_merged['ขนาด(ลิตร)'] > 6.0)
+        ]
+        choice_pack = [1, 10, 12, 4, 2, 1]
+        df_merged['Pack_Size'] = np.select(cond_pack, choice_pack, default=1)
+        
+        # Daily demand & ROP
         df_merged['Daily_Units'] = df_merged['Units_Sold'] / 31.0
-        df_merged['ROP'] = np.ceil((df_merged['Daily_Units'] * lead_time_days) + df_merged['Safety_Stock'])
         
-        # Order Up To Level: Target 15 days supply + Safety Stock
+        # ROP: If filter, ROP is purely its safety stock (Min Level)
+        df_merged['ROP'] = np.where(
+            is_filter,
+            df_merged['Safety_Stock'],
+            np.ceil((df_merged['Daily_Units'] * lead_time_days) + df_merged['Safety_Stock'])
+        )
+        
+        # Max Stock (Target Coverage 15 days for oils; Safety * 2 for filters)
         target_coverage_days = 15.0
-        df_merged['Max_Stock'] = np.ceil((df_merged['Daily_Units'] * target_coverage_days) + df_merged['Safety_Stock'])
+        df_merged['Max_Stock'] = np.where(
+            is_filter,
+            df_merged['Safety_Stock'] * 2,
+            np.ceil((df_merged['Daily_Units'] * target_coverage_days) + df_merged['Safety_Stock'])
+        )
         
-        df_merged['Suggested_Order'] = np.where(
-            (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP']) & (df_merged['Units_Sold'] > 0),
+        # Raw Suggested Order Units
+        cond_trigger = (
+            (is_filter & (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['Safety_Stock'])) |
+            (~is_filter & (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP']) & (df_merged['Units_Sold'] > 0)) |
+            (~is_filter & (df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & (df_merged['Units_Sold'] > 0))
+        )
+        
+        raw_order = np.where(
+            cond_trigger,
             np.maximum(0, np.ceil(df_merged['Max_Stock'] - df_merged['จำนวนคงเหลือ/หน่วย'])),
             0
-        ).astype(int)
+        )
+        # Ensure at least safety stock if stock is 0
+        raw_order = np.where(
+            (df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & cond_trigger & (raw_order < df_merged['Safety_Stock']),
+            df_merged['Safety_Stock'],
+            raw_order
+        )
+        df_merged['Raw_Order'] = raw_order.astype(int)
         
-        # If out of stock but sold before, ensure ordering at least safety stock
-        df_merged.loc[(df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & (df_merged['Units_Sold'] > 0) & (df_merged['Suggested_Order'] < df_merged['Safety_Stock']), 'Suggested_Order'] = df_merged['Safety_Stock']
+        # Pack Size Rounding (ปัดเศษเต็มลัง)
+        df_merged['Suggested_Packs'] = np.ceil(df_merged['Raw_Order'] / df_merged['Pack_Size']).astype(int)
+        df_merged['Suggested_Order'] = (df_merged['Suggested_Packs'] * df_merged['Pack_Size']).astype(int)
         
-        # Identify Top Sellers (Top 20% by sales)
-        sales_threshold = df_merged[df_merged['Units_Sold'] > 0]['Units_Sold'].quantile(0.80) if len(df_merged[df_merged['Units_Sold'] > 0]) > 0 else 5.0
-        df_merged['Is_Top_Seller'] = df_merged['Units_Sold'] >= sales_threshold
+        # Top Seller Identification (Top 20% by sales of items with sales)
+        active_sales = df_merged[df_merged['Units_Sold'] > 0]['Units_Sold']
+        sales_threshold = active_sales.quantile(0.80) if len(active_sales) > 0 else 5.0
+        df_merged['Is_Top_Seller'] = (df_merged['Units_Sold'] >= sales_threshold) & (~is_filter)
         
-        # Status assignment with Hot-Item Alert
-        conditions = [
+        # Status Assignment
+        cond_status = [
             (df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & (df_merged['Is_Top_Seller']),
             (df_merged['จำนวนคงเหลือ/หน่วย'] <= 0) & (df_merged['Units_Sold'] > 0),
+            (is_filter) & (df_merged['จำนวนคงเหลือ/หน่วย'] <= 0),
             (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP']) & (df_merged['Is_Top_Seller']),
             (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['ROP']) & (df_merged['Units_Sold'] > 0),
-            (df_merged['Units_Sold'] == 0) & (df_merged['จำนวนคงเหลือ/หน่วย'] > 0),
+            (is_filter) & (df_merged['จำนวนคงเหลือ/หน่วย'] <= df_merged['Safety_Stock']),
+            (~is_filter) & (df_merged['Units_Sold'] == 0) & (df_merged['จำนวนคงเหลือ/หน่วย'] > 0),
             (df_merged['จำนวนคงเหลือ/หน่วย'] > df_merged['ROP'])
         ]
-        choices = [
+        choice_status = [
             '🔥 ขายดีแต่ของหมด! (วิกฤต)',
             '🔴 สินค้าหมดสต็อก',
+            '🔴 ไส้กรองหมดสต็อก',
             '⚡ สินค้าขายดีต้องรีบสั่ง',
             '🚨 ต้องสั่งซื้อเพิ่ม',
+            '🔧 ไส้กรองต่ำกว่าเกณฑ์',
             '🐢 ไม่เคลื่อนไหว (Dead Stock)',
             '🟢 สต็อกปกติ'
         ]
-        df_merged['Status'] = np.select(conditions, choices, default='🟢 ปกติ')
+        df_merged['Status'] = np.select(cond_status, choice_status, default='🟢 ปกติ')
         
-        # Highlight Urgent Banner if top sellers are out of stock
+        # Critical Alert Banner
         critical_out = df_merged[df_merged['Status'] == '🔥 ขายดีแต่ของหมด! (วิกฤต)']
         if len(critical_out) > 0:
-            st.error(f"🚨 **แจ้งเตือนเร่งด่วน:** มีสินค้าขายดี **{len(critical_out)} รายการ** ที่สต็อกหมดเกลี้ยง (เสียโอกาสการขาย) ได้แก่: " + ", ".join(critical_out['ชื่อสินค้า'].tolist()))
-        
+            st.error(f"🚨 **แจ้งเตือนเร่งด่วน:** มีสินค้าขายดี **{len(critical_out)} รายการ** ที่สต็อกหมดเกลี้ยง (เสียโอกาสการขาย): " + ", ".join(critical_out['ชื่อสินค้า'].tolist()))
+            
         # KPI Row
         st.subheader("📊 สรุปภาพรวมประจำเดือน")
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         
         total_liters = df_merged['Total_Sold_Liters'].sum()
         total_units = df_merged['Units_Sold'].sum()
-        need_order_count = len(df_merged[df_merged['Status'].str.contains('หมด|สั่ง', na=False)])
+        need_order_count = len(df_merged[df_merged['Suggested_Packs'] > 0])
         dead_stock_count = len(df_merged[df_merged['Status'] == '🐢 ไม่เคลื่อนไหว (Dead Stock)'])
         
-        kpi1.metric("ยอดขายรวม (ลิตร)", f"{total_liters:,.0f} ลิตร")
-        kpi2.metric("ยอดขายรวม (ขวด/แกลลอน/ลูก)", f"{total_units:,.0f} ชิ้น")
+        kpi1.metric("ยอดขายรวม (ลิตร)", f"{total_liters:,.2f} ลิตร")
+        kpi2.metric("ยอดขายรวม (ขวด/แกลลอน/ลูก)", f"{total_units:,.2f} ชิ้น")
         kpi3.metric("รายการต้องสั่งด่วน", f"{need_order_count} รายการ", delta=-need_order_count if need_order_count > 0 else 0, delta_color="inverse")
         kpi4.metric("สินค้าไม่มีการขาย (Dead Stock)", f"{dead_stock_count} รายการ")
         
@@ -166,6 +223,7 @@ if file_stock is not None and file_sales is not None:
                     color='Units_Sold',
                     color_continuous_scale='Reds'
                 )
+                fig_bar.update_traces(texttemplate='%{text:.2f}', textposition='outside')
                 fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False, height=450)
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
@@ -183,8 +241,10 @@ if file_stock is not None and file_sales is not None:
                 color_discrete_map={
                     '🔥 ขายดีแต่ของหมด! (วิกฤต)': '#780000',
                     '🔴 สินค้าหมดสต็อก': '#e63946',
+                    '🔴 ไส้กรองหมดสต็อก': '#ba181b',
                     '⚡ สินค้าขายดีต้องรีบสั่ง': '#d97706',
                     '🚨 ต้องสั่งซื้อเพิ่ม': '#f4a261',
+                    '🔧 ไส้กรองต่ำกว่าเกณฑ์': '#e09f3e',
                     '🐢 ไม่เคลื่อนไหว (Dead Stock)': '#a8dadc',
                     '🟢 สต็อกปกติ': '#2a9d8f'
                 }
@@ -195,29 +255,33 @@ if file_stock is not None and file_sales is not None:
         st.divider()
         
         # Reorder Action Table
-        st.subheader("📋 รายการที่ต้องเปิดบิลสั่งซื้อรอบนี้ (Action Order List)")
-        order_list = df_merged[df_merged['Status'].str.contains('หมด|สั่ง', na=False)].copy()
+        st.subheader("📋 รายการที่ต้องเปิดบิลสั่งซื้อรอบนี้ (Action Order List - ปัดเต็มลัง)")
+        order_list = df_merged[df_merged['Suggested_Packs'] > 0].copy()
         
         if len(order_list) > 0:
-            # Sort by Critical status first, then Suggested Order
-            order_list['Sort_Priority'] = np.where(order_list['Status'].str.contains('🔥'), 1, 2)
+            order_list['Sort_Priority'] = np.where(order_list['Status'].str.contains('🔥'), 1, 
+                                          np.where(order_list['Status'].str.contains('⚡'), 2, 3))
             order_list = order_list.sort_values(by=['Sort_Priority', 'Suggested_Order'], ascending=[True, False])
             
-            order_table = order_list[['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'จำนวนคงเหลือ/หน่วย', 'Units_Sold', 'Safety_Stock', 'ROP', 'Suggested_Order', 'Status']]
-            order_table.columns = ['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'สต็อกคงเหลือ', 'ยอดขายเดือนนี้ (ชิ้น)', 'สต็อกสำรอง (Safety)', 'จุดสั่งซื้อ (ROP)', 'จำนวนที่แนะนำให้สั่ง (ชิ้น)', 'สถานะ']
+            order_table = order_list[['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'จำนวนคงเหลือ/หน่วย', 'Units_Sold', 'Safety_Stock', 'Pack_Size', 'Suggested_Packs', 'Suggested_Order', 'Status']].copy()
+            order_table.columns = ['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'สต็อกคงเหลือ', 'ยอดขายเดือนนี้ (ชิ้น)', 'สต็อกสำรอง (Safety)', 'บรรจุต่อลัง', 'สั่งซื้อ (ลัง)', 'สั่งซื้อรวม (ชิ้น/แกลลอน)', 'สถานะ']
             
-            # Compatible styling for all pandas versions (map vs applymap)
             def color_status(val):
                 s_val = str(val)
                 if '🔥' in s_val:
                     return 'background-color: #ffcccc; font-weight: bold; color: #990000;'
                 elif '🔴' in s_val:
                     return 'background-color: #ffe6e6; color: #cc0000;'
-                elif '⚡' in s_val or '🚨' in s_val:
+                elif '⚡' in s_val or '🚨' in s_val or '🔧' in s_val:
                     return 'background-color: #fff3cd; color: #856404;'
                 return ''
 
             styler = order_table.style
+            float_cols = ['ขนาด(ลิตร)', 'ยอดขายเดือนนี้ (ชิ้น)']
+            styler = styler.format("{:.2f}", subset=[c for c in float_cols if c in order_table.columns])
+            int_cols = ['สต็อกคงเหลือ', 'สต็อกสำรอง (Safety)', 'บรรจุต่อลัง', 'สั่งซื้อ (ลัง)', 'สั่งซื้อรวม (ชิ้น/แกลลอน)']
+            styler = styler.format("{:d}", subset=[c for c in int_cols if c in order_table.columns])
+
             if hasattr(styler, 'map'):
                 styled_df = styler.map(color_status, subset=['สถานะ'])
             else:
@@ -243,7 +307,8 @@ if file_stock is not None and file_sales is not None:
         # Dead Stock Section
         with st.expander("🔍 ดูรายการสินค้าที่ไม่มียอดขายในเดือนนี้ (Dead Stock / Slow-Moving)"):
             dead_df = df_merged[df_merged['Status'] == '🐢 ไม่เคลื่อนไหว (Dead Stock)'][['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'จำนวนคงเหลือ/หน่วย']].sort_values(by='จำนวนคงเหลือ/หน่วย', ascending=False)
-            st.dataframe(dead_df, use_container_width=True)
+            dead_df.columns = ['รหัสสินค้า', 'ชื่อสินค้า', 'ขนาด(ลิตร)', 'สต็อกคงเหลือ']
+            st.dataframe(dead_df.style.format({'ขนาด(ลิตร)': '{:.2f}', 'สต็อกคงเหลือ': '{:d}'}), use_container_width=True)
             
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์: {e}")
