@@ -10,10 +10,70 @@ st.set_page_config(
     layout="wide"
 )
 
+st.markdown('
+<style>
+    /* Shell Theme Accent */
+    :root {
+        --shell-red: #DD1D21;
+        --shell-yellow: #FBCE07;
+        --shell-dark: #1E2129;
+    }
+    
+    /* Main Headers */
+    h1 {
+        color: #DD1D21 !important;
+        font-weight: 800 !important;
+    }
+    
+    /* Metric Cards */
+    div[data-testid="stMetric"] {
+        background-color: rgba(251, 206, 7, 0.08);
+        border-left: 5px solid #FBCE07;
+        padding: 12px 16px;
+        border-radius: 8px;
+    }
+    div[data-testid="stMetricLabel"] {
+        font-weight: 600;
+        color: #E2E8F0;
+    }
+    div[data-testid="stMetricValue"] {
+        color: #FBCE07 !important;
+        font-weight: 700;
+    }
+    
+    /* Download & Action Buttons */
+    .stDownloadButton > button {
+        background-color: #DD1D21 !important;
+        color: #FFFFFF !important;
+        border: 2px solid #FBCE07 !important;
+        font-weight: bold !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1.2rem !important;
+        transition: all 0.3s ease;
+    }
+    .stDownloadButton > button:hover {
+        background-color: #FBCE07 !important;
+        color: #111111 !important;
+        border-color: #DD1D21 !important;
+    }
+    
+    /* Sliders track & thumb accent */
+    div[data-baseweb="slider"] {
+        accent-color: #DD1D21 !important;
+    }
+    
+    /* Sidebar header */
+    div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] h3 {
+        color: #FBCE07 !important;
+    }
+</style>
+', unsafe_allow_html=True)
+
 st.title("🛢️ ระบบวิเคราะห์ยอดขาย & แนะนำการสั่งซื้อประจำเดือน")
 st.markdown("อัปโหลดไฟล์รายงาน 2 ไฟล์จากระบบ เพื่อดูแดชบอร์ดสรุปสินค้าขายดีและรายการแนะนำสั่งซื้ออัตโนมัติ (ปัดเศษเต็มลัง)")
 
-# Sidebar for file upload
+# Sidebar Shell Branding
+st.sidebar.image("https://upload.wikimedia.org/wikipedia/en/thumb/e/e8/Shell_logo.svg/300px-Shell_logo.svg.png", width=95)
 st.sidebar.header("📁 อัปโหลดไฟล์ประจำเดือน")
 file_stock = st.sidebar.file_uploader("1. อัปโหลดไฟล์สต็อก (จัดการคลังสินค้า.xls)", type=['xls', 'xlsx'])
 file_sales = st.sidebar.file_uploader("2. อัปโหลดไฟล์ยอดขาย (รายงานขนาดการขาย.xls)", type=['xls', 'xlsx'])
@@ -32,7 +92,6 @@ safety_oil_4L = st.sidebar.slider("🛢️ น้ำมันเครื่อ�
 safety_oil_6L = st.sidebar.slider("🚚 น้ำมันเครื่อง 6 ลิตร (แกลลอนดีเซล)", min_value=0, max_value=16, value=4, step=1)
 safety_other = st.sidebar.slider("📦 ขนาดอื่นๆ / ถังใหญ่ (18L, 20L)", min_value=0, max_value=5, value=1, step=1)
 
-st.sidebar.subheader("📦 ขนาดบรรจุต่อลัง (Pack Size)")
 pack_coolant_1L = 10  # หล่อเย็น 1 ลิตร ลังละ 10 ขวด
 pack_coolant_4L = 4   # น้ำยาหล่อเย็น 4 ลิตร ลังละ 4 แกลลอน (มาตรฐาน)
 pack_oil_1L = 12      # น้ำมันเครื่อง 1 ลิตร ลังละ 12 ขวด
